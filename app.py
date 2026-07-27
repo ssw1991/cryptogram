@@ -156,7 +156,7 @@ def initialize_state() -> None:
         st.session_state.corpus_source_selection = "NLTK Corpus Brown (default)"
 
     if "data_sheet_selection" not in st.session_state:
-        st.session_state.data_sheet_selection = "General Characteristic Frequencies"
+        st.session_state.data_sheet_selection = "None"
 
     if "visual_theme" not in st.session_state:
         st.session_state.visual_theme = "Paper & Ink"
@@ -184,6 +184,12 @@ def initialize_state() -> None:
 
     if "import_payload_text" not in st.session_state:
         st.session_state.import_payload_text = ""
+
+    if "pending_session_import_payload" not in st.session_state:
+        st.session_state.pending_session_import_payload = None
+
+    if "session_import_notice" not in st.session_state:
+        st.session_state.session_import_notice = False
 
     for letter in ALPHABET_ASCENDING:
         sub_key = f"sub_{letter}"
@@ -217,7 +223,7 @@ def seed_defaults_on_first_load() -> None:
     st.session_state.cryptogram_input_mode = "Use default sample"
     st.session_state.active_cryptogram_source = "default"
     st.session_state.corpus_source_selection = "NLTK Corpus Brown (default)"
-    st.session_state.data_sheet_selection = "General Characteristic Frequencies"
+    st.session_state.data_sheet_selection = "None"
     st.session_state.defaults_seeded = True
 
 
@@ -517,7 +523,7 @@ def import_session_payload(payload: dict[str, object]) -> None:
     st.session_state.corpus_source_selection = str(
         payload.get("corpus_source_selection", "NLTK Corpus Brown (default)")
     )
-    st.session_state.data_sheet_selection = str(payload.get("data_sheet_selection", "General Characteristic Frequencies"))
+    st.session_state.data_sheet_selection = str(payload.get("data_sheet_selection", "None"))
     st.session_state.visual_theme = str(payload.get("visual_theme", "Paper & Ink"))
 
     st.session_state.substitutions = sanitize_mapping_dict(payload.get("substitutions"), single_character=True)
@@ -534,6 +540,16 @@ def import_session_payload(payload: dict[str, object]) -> None:
     st.session_state.mapping_history = [mapping_snapshot()]
     st.session_state.mapping_history_index = 0
     st.session_state.suppress_history = False
+
+
+def apply_pending_session_import() -> None:
+    pending_payload = st.session_state.get("pending_session_import_payload")
+    if not isinstance(pending_payload, dict):
+        return
+
+    import_session_payload(pending_payload)
+    st.session_state.pending_session_import_payload = None
+    st.session_state.session_import_notice = True
 
 
 def on_substitution_change(letter: str) -> None:
@@ -821,8 +837,6 @@ def resolve_selected_corpus_text() -> str | None:
 def render_data_sheets() -> str | None:
     st.subheader("Data sheets", anchor=False)
 
-    corpus_text = resolve_selected_corpus_text()
-
     selected_sheet = st.selectbox(
         "Select data sheet",
         options=[
@@ -836,11 +850,14 @@ def render_data_sheets() -> str | None:
         key="data_sheet_selection",
     )
 
+    if selected_sheet == "None":
+        st.caption("Select a data sheet to load corpus-based frequency comparisons.")
+        return None
+
+    corpus_text = resolve_selected_corpus_text()
+
     if not st.session_state.cryptogram_text:
         st.caption("Load a .txt cryptogram file to display data sheets.")
-        return corpus_text
-
-    if selected_sheet == "None":
         return corpus_text
 
     sheet_config = {
@@ -1141,6 +1158,10 @@ def render_analysis_panels(corpus_text: str | None) -> None:
 def render_session_state_tools() -> None:
     st.subheader("Session state", anchor=False)
 
+    if st.session_state.session_import_notice:
+        st.success("Session imported.")
+        st.session_state.session_import_notice = False
+
     payload = export_session_payload()
     payload_json = json.dumps(payload, indent=2)
 
@@ -1167,8 +1188,7 @@ def render_session_state_tools() -> None:
         return
 
     if st.button("Apply imported session"):
-        import_session_payload(decoded_payload)
-        st.success("Session imported.")
+        st.session_state.pending_session_import_payload = decoded_payload
         st.rerun()
 
 
@@ -1358,6 +1378,7 @@ def main() -> None:
     st.set_page_config(page_title="Cryptogram Workspace", page_icon=":material/key:", layout="wide")
     initialize_state()
     seed_defaults_on_first_load()
+    apply_pending_session_import()
     initialize_mapping_history()
 
     st.title("Cryptogram Workspace", text_alignment="center")
