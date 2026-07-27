@@ -4,29 +4,6 @@ Interactive cryptogram-solving workspace built with Streamlit and corpus-based a
 
 Inspired by the book *Solving Cryptograms: A Scientific Approach* by Ross Hallock, available for purchase [here](https://www.amazon.com/Solving-Cryptograms-Scientific-Ross-Hallock/dp/B0DXY723HT).
 
-## Screenshots
-
-Add screenshots to an `assets/` folder using the filenames below.
-
-### Input and Views
-
-![Input and views](assets/cryptogram_input_and_views.png)
-
-### Mapping Grid and Status Flags
-
-![Mapping grid and status flags](assets/cryptogram_mapping_grid_status.png)
-
-### Data Sheets and Corpus Selection
-
-![Data sheets and corpus selection](assets/cryptogram_data_sheets_corpus.png)
-
-### Analysis Tabs
-
-![Analysis tabs](assets/cryptogram_analysis_tabs.png)
-
-### Session Export / Import
-
-![Session export and import](assets/cryptogram_session_tools.png)
 
 ## Features
 
@@ -110,3 +87,26 @@ Then open: <http://localhost:8501>
 - Add candidate ranking controls in the pattern assistant
 - Add lightweight tests for normalization and analysis helpers
 - Add deploy instructions for Streamlit Community Cloud
+
+## Screenshots
+
+
+### Input and Views
+
+![Input and views](assets/cryptogram_input_and_views.png)
+
+### Mapping Grid and Status Flags
+
+![Mapping grid and status flags](assets/cryptogram_mapping_grid_status.png)
+
+### Data Sheets and Corpus Selection
+
+![Data sheets and corpus selection](assets/cryptogram_data_sheets_corpus.png)
+
+### Analysis Tabs
+
+![Analysis tabs](assets/cryptogram_analysis_tabs.png)
+
+### Session Export / Import
+
+![Session export and import](assets/cryptogram_session_tools.png)
