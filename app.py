@@ -129,7 +129,7 @@ COMMON_TRIGRAMS = {
 }
 
 PATTERN_CANDIDATE_LIMIT = 6
-PATTERN_MAX_SCAN_PER_BUCKET = 300
+PATTERN_FAST_MAX_SCAN_PER_BUCKET = 300
 PATTERN_MAX_ROWS = 20
 
 
@@ -184,6 +184,9 @@ def initialize_state() -> None:
 
     if "import_payload_text" not in st.session_state:
         st.session_state.import_payload_text = ""
+
+    if "pattern_scan_mode" not in st.session_state:
+        st.session_state.pattern_scan_mode = "Full scan"
 
     if "pending_session_import_payload" not in st.session_state:
         st.session_state.pending_session_import_payload = None
@@ -445,12 +448,12 @@ def resolve_pattern_candidates(
     substitutions: dict[str, str],
     pattern_index: dict[str, list[tuple[str, int]]],
     candidate_limit: int = PATTERN_CANDIDATE_LIMIT,
-    max_bucket_scan: int = PATTERN_MAX_SCAN_PER_BUCKET,
+    max_bucket_scan: int | None = None,
 ) -> tuple[list[str], int, int]:
     key = f"{len(cipher_word)}|{build_word_shape_signature(cipher_word)}"
     candidates = pattern_index.get(key, [])
     bucket_size = len(candidates)
-    scan_limit = min(bucket_size, max_bucket_scan)
+    scan_limit = bucket_size if max_bucket_scan is None else min(bucket_size, max_bucket_scan)
 
     filtered_candidates: list[str] = []
     scanned_count = 0
@@ -870,14 +873,14 @@ def render_data_sheets() -> str | None:
         },
         "Initial Position Frequencies for Long Words": {
             "position_mode": "initial",
-            "minimum_length": 5,
+            "minimum_length": 4,
             "exact_length": None,
             "cryptogram_column": "Cryptogram initial frequency (%)",
             "corpus_column": "Corpus initial frequency (%)",
         },
         "Terminal Position Frequencies for Long Words": {
             "position_mode": "terminal",
-            "minimum_length": 5,
+            "minimum_length": 4,
             "exact_length": None,
             "cryptogram_column": "Cryptogram terminal frequency (%)",
             "corpus_column": "Corpus terminal frequency (%)",
@@ -924,6 +927,14 @@ def render_data_sheets() -> str | None:
 def render_pattern_assistant(corpus_text: str | None) -> None:
     st.markdown("**Pattern assistant**")
 
+    scan_mode = st.segmented_control(
+        "Scan mode",
+        options=["Full scan", "Fast scan"],
+        key="pattern_scan_mode",
+    )
+
+    max_bucket_scan = None if scan_mode == "Full scan" else PATTERN_FAST_MAX_SCAN_PER_BUCKET
+
     if not st.session_state.cryptogram_text:
         st.caption("Load a cryptogram to generate pattern candidates.")
         return
@@ -932,9 +943,9 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
         st.caption("Select or upload a corpus in Data sheets to enable pattern candidates.")
         return
 
-    words = re.findall(r"[A-Za-z]+", st.session_state.cryptogram_text)
+    words = [word for word in re.findall(r"[A-Za-z]+", st.session_state.cryptogram_text) if len(word) >= 4]
     if not words:
-        st.caption("No alphabetic words found in the active cryptogram.")
+        st.caption("No alphabetic words of length 4 or greater found in the active cryptogram.")
         return
 
     unique_words: list[str] = []
@@ -948,8 +959,8 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
     pattern_index, index_metrics = build_corpus_pattern_index(corpus_text)
     candidate_rows: list[dict[str, str]] = []
     total_scanned = 0
-    capped_bucket_count = 0
     evaluated_words = 0
+    capped_bucket_count = 0
 
     for cipher_word in unique_words:
         solved_count = sum(
@@ -965,20 +976,24 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
             st.session_state.substitutions.get(character.upper(), "") or "_"
             for character in cipher_word
         )
+        shape_signature = build_word_shape_signature(cipher_word)
 
         candidates, scanned_count, bucket_size = resolve_pattern_candidates(
             cipher_word,
             st.session_state.substitutions,
             pattern_index,
+            max_bucket_scan=max_bucket_scan,
         )
         total_scanned += scanned_count
-        if bucket_size > PATTERN_MAX_SCAN_PER_BUCKET:
+        if max_bucket_scan is not None and bucket_size > max_bucket_scan:
             capped_bucket_count += 1
 
         candidate_rows.append(
             {
                 "Cipher word": cipher_word.upper(),
+                "Shape signature": shape_signature,
                 "Solved pattern": solved_pattern,
+                "Bucket size": f"{bucket_size:,}",
                 "Candidates": ", ".join(candidate.upper() for candidate in candidates) if candidates else "—",
             }
         )
@@ -994,9 +1009,17 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
     metrics_columns[2].metric("Avg scanned / word", f"{average_scanned:,}")
     metrics_columns[3].metric("Capped buckets", capped_bucket_count)
 
+    if max_bucket_scan is None:
+        mode_caption = "Per-word candidate scans evaluate the full matching bucket."
+    else:
+        mode_caption = (
+            f"Per-word candidate scans are capped at {PATTERN_FAST_MAX_SCAN_PER_BUCKET:,} "
+            f"for Fast scan mode."
+        )
+
     st.caption(
         f"Pattern index is cached by corpus text. Largest bucket size: {index_metrics['largest_bucket']:,}. "
-        f"Per-word candidate scans are capped at {PATTERN_MAX_SCAN_PER_BUCKET:,}."
+        f"{mode_caption}"
     )
 
     candidate_frame = pd.DataFrame(candidate_rows).head(PATTERN_MAX_ROWS)
