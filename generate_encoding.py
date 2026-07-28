@@ -21,6 +21,7 @@ def encode_plaintext_lines(
 	plain_text_file_path: str | Path,
 	beginning_pattern: str,
 	output_directory_path: str | Path,
+	start_index: int = 0,
 ) -> list[tuple[Path, Path]]:
 	input_path = Path(plain_text_file_path)
 	if not input_path.exists() or not input_path.is_file():
@@ -29,13 +30,17 @@ def encode_plaintext_lines(
 	if not beginning_pattern or not beginning_pattern.strip():
 		raise ValueError("beginning_pattern must be a non-empty string")
 
+	if start_index < 0:
+		raise ValueError("start_index must be greater than or equal to 0")
+
 	output_path = Path(output_directory_path)
 	output_path.mkdir(parents=True, exist_ok=True)
 
 	lines = input_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
 	written_files: list[tuple[Path, Path]] = []
-	for index, line in enumerate(lines):
+	for offset, line in enumerate(lines):
+		file_index = start_index + offset
 		normalized_line = line.lower()
 		substitution_map = _build_random_derangement()
 
@@ -44,8 +49,8 @@ def encode_plaintext_lines(
 			for character in normalized_line
 		)
 
-		encoded_file = output_path / f"{beginning_pattern}_{index}.txt"
-		solution_file = output_path / f"{beginning_pattern}_{index}_solution.txt"
+		encoded_file = output_path / f"{beginning_pattern}_{file_index:03d}.txt"
+		solution_file = output_path / f"{beginning_pattern}_{file_index:03d}_solution.txt"
 
 		encoded_file.write_text(encoded_line, encoding="utf-8")
 		solution_file.write_text(normalized_line, encoding="utf-8")
@@ -62,6 +67,12 @@ def _build_parser() -> argparse.ArgumentParser:
 	parser.add_argument("plain_text_file_path", help="Path to input plaintext file (one message per line)")
 	parser.add_argument("beginning_pattern", help="File name prefix for output files")
 	parser.add_argument("output_directory_path", help="Directory to write encoded and solution files")
+	parser.add_argument(
+		"--start-index",
+		type=int,
+		default=0,
+		help="Starting index for generated file names (default: 0)",
+	)
 	return parser
 
 
@@ -73,6 +84,7 @@ def main() -> None:
 		plain_text_file_path=args.plain_text_file_path,
 		beginning_pattern=args.beginning_pattern,
 		output_directory_path=args.output_directory_path,
+		start_index=args.start_index,
 	)
 
 	print(f"Generated {len(generated_files)} encoded files and {len(generated_files)} solution files.")

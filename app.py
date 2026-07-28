@@ -4,6 +4,7 @@ import json
 from collections import Counter, defaultdict
 from html import escape
 from pathlib import Path
+import random
 import re
 from string import ascii_uppercase
 
@@ -220,7 +221,7 @@ def seed_defaults_on_first_load() -> None:
     if st.session_state.defaults_seeded:
         return
 
-    default_cryptogram_path = Path(__file__).resolve().parent / "data" / "illustrative_problem_2.txt"
+    default_cryptogram_path = Path(__file__).resolve().parent / "data" / "generic_000.txt"
     if default_cryptogram_path.exists() and not st.session_state.cryptogram_text:
         default_text = default_cryptogram_path.read_text(encoding="utf-8", errors="replace")
         st.session_state.cryptogram_text = default_text.replace("\r\n", "\n")
@@ -235,7 +236,7 @@ def seed_defaults_on_first_load() -> None:
 
 
 def get_default_cryptogram_path() -> Path:
-    return Path(__file__).resolve().parent / "data" / "illustrative_problem_2.txt"
+    return Path(__file__).resolve().parent / "data" / "generic_000.txt"
 
 
 def get_data_directory_path() -> Path:
@@ -261,7 +262,16 @@ def load_cryptogram_from_path(file_path: Path, source_name: str) -> None:
         return
 
     cryptogram_text = file_path.read_text(encoding="utf-8", errors="replace")
-    st.session_state.cryptogram_text = cryptogram_text.replace("\r\n", "\n")
+    normalized_text = cryptogram_text.replace("\r\n", "\n")
+
+    is_different_input = (
+        file_path.name != st.session_state.uploaded_filename
+        or normalized_text != st.session_state.cryptogram_text
+    )
+    if is_different_input:
+        clear_all_mappings_for_new_input()
+
+    st.session_state.cryptogram_text = normalized_text
     st.session_state.uploaded_filename = file_path.name
     st.session_state.active_cryptogram_source = source_name
 
@@ -269,7 +279,7 @@ def load_cryptogram_from_path(file_path: Path, source_name: str) -> None:
 def load_default_cryptogram() -> None:
     default_path = get_default_cryptogram_path()
     if not default_path.exists():
-        st.warning("Default sample file is missing: data/illustrative_problem_2.txt")
+        st.warning("Default sample file is missing: data/generic_000.txt")
         return
 
     load_cryptogram_from_path(default_path, source_name="default")
@@ -489,16 +499,15 @@ def resolve_pattern_candidates(
     pattern_index: dict[str, list[tuple[str, int]]],
     candidate_limit: int = PATTERN_CANDIDATE_LIMIT,
     max_bucket_scan: int | None = None,
-) -> tuple[list[str], int, int]:
+) -> tuple[list[str], int, int, int]:
     key = f"{len(cipher_word)}|{build_word_shape_signature(cipher_word)}"
     candidates = pattern_index.get(key, [])
     bucket_size = len(candidates)
     scan_limit = bucket_size if max_bucket_scan is None else min(bucket_size, max_bucket_scan)
 
     filtered_candidates: list[str] = []
-    scanned_count = 0
-    for candidate_word, _count in candidates[:scan_limit]:
-        scanned_count += 1
+    consistent_bucket_size = 0
+    for candidate_index, (candidate_word, _count) in enumerate(candidates):
         candidate_upper = candidate_word.upper()
         matches_known_letters = True
         for index, cipher_character in enumerate(cipher_word.upper()):
@@ -508,12 +517,13 @@ def resolve_pattern_candidates(
                 break
 
         if matches_known_letters:
-            filtered_candidates.append(candidate_word)
+            consistent_bucket_size += 1
+            if candidate_index < scan_limit and len(filtered_candidates) < candidate_limit:
+                filtered_candidates.append(candidate_word)
 
-        if len(filtered_candidates) >= candidate_limit:
-            break
+    scanned_count = scan_limit
 
-    return filtered_candidates, scanned_count, bucket_size
+    return filtered_candidates, scanned_count, bucket_size, consistent_bucket_size
 
 
 def sanitize_mapping_dict(raw_value: object, single_character: bool) -> dict[str, str]:
@@ -564,7 +574,10 @@ def import_session_payload(payload: dict[str, object]) -> None:
     st.session_state.uploaded_filename = str(payload.get("uploaded_filename", ""))
     st.session_state.data_folder_file_selection = str(payload.get("data_folder_file_selection", ""))
     st.session_state.active_cryptogram_source = str(payload.get("active_cryptogram_source", "upload"))
-    st.session_state.cryptogram_input_mode = str(payload.get("cryptogram_input_mode", "Upload file"))
+    imported_input_mode = str(payload.get("cryptogram_input_mode", "Upload file"))
+    if imported_input_mode == "Select from data folder":
+        imported_input_mode = "Choose built-in sample"
+    st.session_state.cryptogram_input_mode = imported_input_mode
     st.session_state.corpus_source_selection = str(
         payload.get("corpus_source_selection", "NLTK Corpus Brown (default)")
     )
@@ -644,6 +657,25 @@ def reset_mappings() -> None:
     push_history_snapshot()
 
 
+def clear_all_mappings_for_new_input() -> None:
+    st.session_state.suppress_history = True
+
+    for letter in ALPHABET_ASCENDING:
+        st.session_state.substitutions[letter] = ""
+        st.session_state.likely_chars[letter] = ""
+        st.session_state.rejected_chars[letter] = ""
+        st.session_state.locked_letters[letter] = False
+
+        st.session_state[f"sub_{letter}"] = ""
+        st.session_state[f"likely_{letter}"] = ""
+        st.session_state[f"rejected_{letter}"] = ""
+        st.session_state[f"lock_{letter}"] = False
+
+    st.session_state.mapping_history = [mapping_snapshot()]
+    st.session_state.mapping_history_index = 0
+    st.session_state.suppress_history = False
+
+
 def reset_all() -> None:
     reset_mappings()
     st.session_state.suppress_history = True
@@ -662,7 +694,7 @@ def load_uploaded_text() -> None:
     st.markdown("**Cryptogram input**")
     input_mode = st.segmented_control(
         "Source",
-        options=["Use default sample", "Select from data folder", "Upload file"],
+        options=["Use default sample", "Choose built-in sample", "Upload file"],
         key="cryptogram_input_mode",
     )
 
@@ -672,7 +704,7 @@ def load_uploaded_text() -> None:
         st.caption(f"Active cryptogram: {st.session_state.uploaded_filename}")
         return
 
-    if input_mode == "Select from data folder":
+    if input_mode == "Choose built-in sample":
         selectable_files = get_selectable_data_cryptogram_files()
 
         if not selectable_files:
@@ -683,8 +715,14 @@ def load_uploaded_text() -> None:
         if st.session_state.data_folder_file_selection not in selectable_file_names:
             st.session_state.data_folder_file_selection = selectable_file_names[0]
 
+        if st.button("Random built-in sample"):
+            random_choice = random.choice(selectable_files)
+            st.session_state.data_folder_file_selection = random_choice.name
+            load_cryptogram_from_path(random_choice, source_name="data-folder")
+            st.rerun()
+
         selected_file_name = st.selectbox(
-            "Select cryptogram from data/",
+			"Select built-in cryptogram",
             options=selectable_file_names,
             key="data_folder_file_selection",
         )
@@ -714,7 +752,16 @@ def load_uploaded_text() -> None:
 
     if uploaded_file.name != st.session_state.uploaded_filename or st.session_state.active_cryptogram_source != "upload":
         decoded_text = uploaded_file.getvalue().decode("utf-8", errors="replace")
-        st.session_state.cryptogram_text = decoded_text.replace("\r\n", "\n")
+        normalized_text = decoded_text.replace("\r\n", "\n")
+
+        is_different_input = (
+            uploaded_file.name != st.session_state.uploaded_filename
+            or normalized_text != st.session_state.cryptogram_text
+        )
+        if is_different_input:
+            clear_all_mappings_for_new_input()
+
+        st.session_state.cryptogram_text = normalized_text
         st.session_state.uploaded_filename = uploaded_file.name
         st.session_state.active_cryptogram_source = "upload"
 
@@ -1288,7 +1335,7 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
             for character in cipher_word
         )
 
-        candidates, scanned_count, bucket_size = resolve_pattern_candidates(
+        candidates, scanned_count, bucket_size, consistent_bucket_size = resolve_pattern_candidates(
             cipher_word,
             st.session_state.substitutions,
             pattern_index,
@@ -1303,7 +1350,8 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
                 "Cipher word": cipher_word.upper(),
                 "Shape signature": shape_signature,
                 "Solved pattern": solved_pattern,
-                "Bucket size": f"{bucket_size:,}",
+                "Shape bucket size": f"{bucket_size:,}",
+                "Consistent bucket size": f"{consistent_bucket_size:,}",
                 "Candidates": ", ".join(candidate.upper() for candidate in candidates) if candidates else "—",
             }
         )

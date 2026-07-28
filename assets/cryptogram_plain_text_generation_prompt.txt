@@ -1,0 +1,103 @@
+Prompt:  
+Generate a large batch of plain‑text lines for cryptogram creation.
+Follow these rules:
+
+Format
+
+Do not number the entries.
+
+Separate each entry with one blank line.
+
+Output plain text only, no markdown formatting.
+
+Content Requirements
+
+Include a mix of:
+
+Single sentences
+
+Multi‑sentence paragraphs
+
+Complex phrases
+
+Quote‑style lines with “— author”
+
+All content must be original, safe, and suitable for cryptogram encoding.
+
+Length & Quantity
+
+Generate [insert number here] entries.
+
+Example: 50, 100, 200, 500, etc.
+
+Theme / Genre Options  
+Choose one or mix several:
+
+General / neutral
+
+Inspirational
+
+Philosophical
+
+Nature‑themed
+
+Sci‑fi
+
+Fantasy
+
+Mystery / noir
+
+Historical tone
+
+Wholesome / uplifting
+
+Humorous
+
+Dark but non‑violent
+
+Children‑safe
+
+Military‑style discipline or leadership
+
+Romantic but clean
+
+High vocabulary / advanced difficulty
+
+Simple vocabulary / beginner difficulty
+
+Example usage:
+“Use a mix of inspirational, philosophical, and nature‑themed lines.”
+“Make them sci‑fi themed with medium difficulty.”
+“Blend mystery and historical tone.”
+
+Difficulty Options
+
+Simple (short sentences, common words)
+
+Medium (moderate vocabulary, varied structure)
+
+Complex (long sentences, advanced vocabulary, layered meaning)
+
+Quote Options
+
+Include some entries in quote format:
+“Sentence goes here.” — Author Name
+
+Authors should be fictional or generic (e.g., “— A. Rowan”, “— Unknown”).
+
+Restrictions
+
+No copyrighted quotes.
+
+No real famous quotes.
+
+No graphic content.
+
+No political messaging.
+
+No violence instructions.
+
+Everything must be fully original.
+
+Final instruction:  
+After generating the entries, stop. Do not add commentary, summaries, or closing remarks.
