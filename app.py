@@ -419,15 +419,25 @@ def build_word_shape_signature(word: str) -> str:
     return "".join(encoded_parts)
 
 
+def has_repeated_shape_letters(shape_signature: str) -> bool:
+    return len(set(shape_signature)) < len(shape_signature)
+
+
 @st.cache_data(show_spinner=False)
 def build_corpus_pattern_index(corpus_text: str) -> tuple[dict[str, list[tuple[str, int]]], dict[str, int]]:
     words = re.findall(r"[A-Za-z]+", corpus_text)
     word_counter = Counter(word.lower() for word in words)
 
     grouped: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    indexed_word_count = 0
     for word, count in word_counter.items():
-        key = f"{len(word)}|{build_word_shape_signature(word)}"
+        shape_signature = build_word_shape_signature(word)
+        if not has_repeated_shape_letters(shape_signature):
+            continue
+
+        key = f"{len(word)}|{shape_signature}"
         grouped[key].append((word, count))
+        indexed_word_count += 1
 
     for key in grouped:
         grouped[key].sort(key=lambda item: item[1], reverse=True)
@@ -436,6 +446,7 @@ def build_corpus_pattern_index(corpus_text: str) -> tuple[dict[str, list[tuple[s
     index_metrics = {
         "tokens": len(words),
         "unique_words": len(word_counter),
+        "indexed_words": indexed_word_count,
         "shape_buckets": len(grouped),
         "largest_bucket": largest_bucket,
     }
@@ -721,6 +732,12 @@ def build_uniform_distribution() -> dict[str, float]:
     return {letter: uniform_value for letter in ascii_uppercase}
 
 
+def build_uniform_bigram_distribution() -> dict[str, float]:
+    bigrams = [f"{first}{second}" for first in ascii_uppercase for second in ascii_uppercase]
+    uniform_value = round(100.0 / len(bigrams), 4)
+    return {bigram: uniform_value for bigram in bigrams}
+
+
 @st.cache_data(show_spinner=False)
 def calculate_frequency_distribution(
     text: str,
@@ -797,6 +814,84 @@ def build_frequency_table(
     return pd.DataFrame(rows)
 
 
+@st.cache_data(show_spinner=False)
+def calculate_bigram_frequency_distribution(
+    text: str,
+    position_mode: str,
+) -> dict[str, float]:
+    bigrams = [f"{first}{second}" for first in ascii_uppercase for second in ascii_uppercase]
+    counts = {bigram: 0 for bigram in bigrams}
+
+    words = re.findall(r"[A-Za-z]+", text)
+
+    if position_mode == "all":
+        for word in words:
+            upper_word = word.upper()
+            if len(upper_word) < 2:
+                continue
+            for index in range(len(upper_word) - 1):
+                bigram = upper_word[index : index + 2]
+                if bigram in counts:
+                    counts[bigram] += 1
+    elif position_mode == "initial":
+        for word in words:
+            upper_word = word.upper()
+            if len(upper_word) < 2:
+                continue
+            bigram = upper_word[:2]
+            if bigram in counts:
+                counts[bigram] += 1
+    else:
+        for word in words:
+            upper_word = word.upper()
+            if len(upper_word) < 2:
+                continue
+            bigram = upper_word[-2:]
+            if bigram in counts:
+                counts[bigram] += 1
+
+    total = sum(counts.values())
+    return {
+        bigram: round((counts[bigram] / total * 100.0) if total else 0.0, 4)
+        for bigram in bigrams
+    }
+
+
+def build_bigram_frequency_table(
+    cryptogram_text: str,
+    corpus_text: str | None,
+    position_mode: str,
+    cryptogram_column_name: str,
+    corpus_column_name: str,
+) -> pd.DataFrame:
+    cryptogram_distribution = calculate_bigram_frequency_distribution(
+        cryptogram_text,
+        position_mode,
+    )
+
+    if corpus_text:
+        corpus_distribution = calculate_bigram_frequency_distribution(
+            corpus_text,
+            position_mode,
+        )
+    else:
+        corpus_distribution = build_uniform_bigram_distribution()
+
+    rows = []
+    for first in ascii_uppercase:
+        for second in ascii_uppercase:
+            bigram = f"{first}{second}"
+            rows.append(
+                {
+                    "Bigram": bigram,
+                    cryptogram_column_name: cryptogram_distribution[bigram],
+                    corpus_column_name: corpus_distribution[bigram],
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 def resolve_selected_corpus_text() -> str | None:
     corpus_source_options = [
         "NLTK Corpus Brown (default)",
@@ -849,6 +944,9 @@ def render_data_sheets() -> str | None:
             "Terminal Position Frequencies for Long Words",
             "Initial Position Frequencies for 2-Letter Words",
             "Terminal Position Frequencies for 2-Letter Words",
+            "General Characteristic Bigram Frequencies",
+            "Initial Bigram Frequencies",
+            "Terminal Bigram Frequencies",
         ],
         key="data_sheet_selection",
     )
@@ -893,31 +991,99 @@ def render_data_sheets() -> str | None:
             "corpus_column": "Corpus initial frequency (%)",
         },
         "Terminal Position Frequencies for 2-Letter Words": {
+            "unit": "letter",
             "position_mode": "terminal",
             "minimum_length": None,
             "exact_length": 2,
             "cryptogram_column": "Cryptogram terminal frequency (%)",
             "corpus_column": "Corpus terminal frequency (%)",
         },
+        "General Characteristic Bigram Frequencies": {
+            "unit": "bigram",
+            "position_mode": "all",
+            "cryptogram_column": "Cryptogram bigram frequency (%)",
+            "corpus_column": "Corpus bigram frequency (%)",
+        },
+        "Initial Bigram Frequencies": {
+            "unit": "bigram",
+            "position_mode": "initial",
+            "cryptogram_column": "Cryptogram initial bigram frequency (%)",
+            "corpus_column": "Corpus initial bigram frequency (%)",
+        },
+        "Terminal Bigram Frequencies": {
+            "unit": "bigram",
+            "position_mode": "terminal",
+            "cryptogram_column": "Cryptogram terminal bigram frequency (%)",
+            "corpus_column": "Corpus terminal bigram frequency (%)",
+        },
     }
 
+    for sheet_name in [
+        "General Characteristic Frequencies",
+        "Initial Position Frequencies for Long Words",
+        "Terminal Position Frequencies for Long Words",
+        "Initial Position Frequencies for 2-Letter Words",
+    ]:
+        sheet_config[sheet_name]["unit"] = "letter"
+
     config = sheet_config[selected_sheet]
-    frequency_table = build_frequency_table(
-        cryptogram_text=st.session_state.cryptogram_text,
-        corpus_text=corpus_text,
-        position_mode=config["position_mode"],
-        minimum_length=config["minimum_length"],
-        exact_length=config["exact_length"],
-        cryptogram_column_name=config["cryptogram_column"],
-        corpus_column_name=config["corpus_column"],
-    )
+
+    if config["unit"] == "bigram":
+        st.caption("Bigram = two adjacent letters within a word (no spaces).")
+
+    if config["unit"] == "letter":
+        frequency_table = build_frequency_table(
+            cryptogram_text=st.session_state.cryptogram_text,
+            corpus_text=corpus_text,
+            position_mode=config["position_mode"],
+            minimum_length=config.get("minimum_length"),
+            exact_length=config.get("exact_length"),
+            cryptogram_column_name=config["cryptogram_column"],
+            corpus_column_name=config["corpus_column"],
+        )
+        number_format = "%.2f%%"
+    else:
+        frequency_table = build_bigram_frequency_table(
+            cryptogram_text=st.session_state.cryptogram_text,
+            corpus_text=corpus_text,
+            position_mode=config["position_mode"],
+            cryptogram_column_name=config["cryptogram_column"],
+            corpus_column_name=config["corpus_column"],
+        )
+        number_format = "%.4f%%"
+
+    identifier_column = "Bigram" if config["unit"] == "bigram" else "Letter"
+    corpus_ranked_tokens = frequency_table.sort_values(
+        by=[config["corpus_column"], identifier_column],
+        ascending=[False, True],
+    )[identifier_column].tolist()
+
+    default_sort_column = "Cryptogram initial frequency (%)"
+    sort_column = default_sort_column if default_sort_column in frequency_table.columns else config["cryptogram_column"]
+    frequency_table = frequency_table.sort_values(
+        by=[sort_column, identifier_column],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+
+    frequency_table["Same-rank corpus token"] = corpus_ranked_tokens[: len(frequency_table)]
+    frequency_table = frequency_table[
+        [
+            identifier_column,
+            "Same-rank corpus token",
+            config["cryptogram_column"],
+            config["corpus_column"],
+        ]
+    ]
+
+    st.caption("Same-rank corpus token is aligned by corpus-frequency rank with alphabetical tie-break.")
 
     st.dataframe(
         frequency_table,
         hide_index=True,
+        use_container_width=True,
         column_config={
-            config["cryptogram_column"]: st.column_config.NumberColumn(format="%.2f%%"),
-            config["corpus_column"]: st.column_config.NumberColumn(format="%.2f%%"),
+            config["cryptogram_column"]: st.column_config.NumberColumn(format=number_format),
+            config["corpus_column"]: st.column_config.NumberColumn(format=number_format),
         },
     )
 
@@ -963,6 +1129,10 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
     capped_bucket_count = 0
 
     for cipher_word in unique_words:
+        shape_signature = build_word_shape_signature(cipher_word)
+        if not has_repeated_shape_letters(shape_signature):
+            continue
+
         solved_count = sum(
             1 for character in cipher_word.upper() if st.session_state.substitutions.get(character, "")
         )
@@ -976,7 +1146,6 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
             st.session_state.substitutions.get(character.upper(), "") or "_"
             for character in cipher_word
         )
-        shape_signature = build_word_shape_signature(cipher_word)
 
         candidates, scanned_count, bucket_size = resolve_pattern_candidates(
             cipher_word,
@@ -1003,11 +1172,12 @@ def render_pattern_assistant(corpus_text: str | None) -> None:
         return
 
     average_scanned = round((total_scanned / evaluated_words), 2) if evaluated_words else 0.0
-    metrics_columns = st.columns(4)
+    metrics_columns = st.columns(5)
     metrics_columns[0].metric("Corpus unique words", f"{index_metrics['unique_words']:,}")
-    metrics_columns[1].metric("Shape buckets", f"{index_metrics['shape_buckets']:,}")
-    metrics_columns[2].metric("Avg scanned / word", f"{average_scanned:,}")
-    metrics_columns[3].metric("Capped buckets", capped_bucket_count)
+    metrics_columns[1].metric("Indexed words", f"{index_metrics['indexed_words']:,}")
+    metrics_columns[2].metric("Shape buckets", f"{index_metrics['shape_buckets']:,}")
+    metrics_columns[3].metric("Avg scanned / word", f"{average_scanned:,}")
+    metrics_columns[4].metric("Capped buckets", capped_bucket_count)
 
     if max_bucket_scan is None:
         mode_caption = "Per-word candidate scans evaluate the full matching bucket."
