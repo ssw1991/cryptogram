@@ -197,9 +197,6 @@ def initialize_state() -> None:
     if "session_import_notice" not in st.session_state:
         st.session_state.session_import_notice = False
 
-    if "pending_widget_state_updates" not in st.session_state:
-        st.session_state.pending_widget_state_updates = {}
-
     for letter in ALPHABET_ASCENDING:
         sub_key = f"sub_{letter}"
         likely_key = f"likely_{letter}"
@@ -237,23 +234,6 @@ def seed_defaults_on_first_load() -> None:
     st.session_state.defaults_seeded = True
 
 
-def queue_widget_state_update(key: str, value: object) -> None:
-    pending_updates = dict(st.session_state.pending_widget_state_updates)
-    pending_updates[key] = value
-    st.session_state.pending_widget_state_updates = pending_updates
-
-
-def apply_pending_widget_state_updates() -> None:
-    pending_updates = st.session_state.get("pending_widget_state_updates", {})
-    if not isinstance(pending_updates, dict) or not pending_updates:
-        return
-
-    for key, value in pending_updates.items():
-        st.session_state[key] = value
-
-    st.session_state.pending_widget_state_updates = {}
-
-
 def get_default_cryptogram_path() -> Path:
     return Path(__file__).resolve().parent / "data" / "illustrative_problem_2.txt"
 
@@ -284,7 +264,6 @@ def load_cryptogram_from_path(file_path: Path, source_name: str) -> None:
     st.session_state.cryptogram_text = cryptogram_text.replace("\r\n", "\n")
     st.session_state.uploaded_filename = file_path.name
     st.session_state.active_cryptogram_source = source_name
-    queue_widget_state_update("data_folder_file_selection", file_path.name)
 
 
 def load_default_cryptogram() -> None:
@@ -1732,7 +1711,6 @@ def apply_page_styles(theme_name: str) -> None:
 def main() -> None:
     st.set_page_config(page_title="Cryptogram Workspace", page_icon=":material/key:", layout="wide")
     initialize_state()
-    apply_pending_widget_state_updates()
     seed_defaults_on_first_load()
     apply_pending_session_import()
     initialize_mapping_history()
