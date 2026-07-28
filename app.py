@@ -143,6 +143,9 @@ def initialize_state() -> None:
     if "uploaded_filename" not in st.session_state:
         st.session_state.uploaded_filename = ""
 
+    if "data_folder_file_selection" not in st.session_state:
+        st.session_state.data_folder_file_selection = ""
+
     if "uploader_version" not in st.session_state:
         st.session_state.uploader_version = 0
 
@@ -194,6 +197,9 @@ def initialize_state() -> None:
     if "session_import_notice" not in st.session_state:
         st.session_state.session_import_notice = False
 
+    if "pending_widget_state_updates" not in st.session_state:
+        st.session_state.pending_widget_state_updates = {}
+
     for letter in ALPHABET_ASCENDING:
         sub_key = f"sub_{letter}"
         likely_key = f"likely_{letter}"
@@ -222,6 +228,7 @@ def seed_defaults_on_first_load() -> None:
         default_text = default_cryptogram_path.read_text(encoding="utf-8", errors="replace")
         st.session_state.cryptogram_text = default_text.replace("\r\n", "\n")
         st.session_state.uploaded_filename = default_cryptogram_path.name
+        st.session_state.data_folder_file_selection = default_cryptogram_path.name
 
     st.session_state.cryptogram_input_mode = "Use default sample"
     st.session_state.active_cryptogram_source = "default"
@@ -230,8 +237,54 @@ def seed_defaults_on_first_load() -> None:
     st.session_state.defaults_seeded = True
 
 
+def queue_widget_state_update(key: str, value: object) -> None:
+    pending_updates = dict(st.session_state.pending_widget_state_updates)
+    pending_updates[key] = value
+    st.session_state.pending_widget_state_updates = pending_updates
+
+
+def apply_pending_widget_state_updates() -> None:
+    pending_updates = st.session_state.get("pending_widget_state_updates", {})
+    if not isinstance(pending_updates, dict) or not pending_updates:
+        return
+
+    for key, value in pending_updates.items():
+        st.session_state[key] = value
+
+    st.session_state.pending_widget_state_updates = {}
+
+
 def get_default_cryptogram_path() -> Path:
     return Path(__file__).resolve().parent / "data" / "illustrative_problem_2.txt"
+
+
+def get_data_directory_path() -> Path:
+    return Path(__file__).resolve().parent / "data"
+
+
+def get_selectable_data_cryptogram_files() -> list[Path]:
+    data_directory = get_data_directory_path()
+    if not data_directory.exists():
+        return []
+
+    files = [
+        file_path
+        for file_path in data_directory.glob("*.txt")
+        if not file_path.name.endswith("_solution.txt")
+    ]
+    return sorted(files, key=lambda path: path.name.lower())
+
+
+def load_cryptogram_from_path(file_path: Path, source_name: str) -> None:
+    if not file_path.exists():
+        st.warning(f"Cryptogram file is missing: {file_path.name}")
+        return
+
+    cryptogram_text = file_path.read_text(encoding="utf-8", errors="replace")
+    st.session_state.cryptogram_text = cryptogram_text.replace("\r\n", "\n")
+    st.session_state.uploaded_filename = file_path.name
+    st.session_state.active_cryptogram_source = source_name
+    queue_widget_state_update("data_folder_file_selection", file_path.name)
 
 
 def load_default_cryptogram() -> None:
@@ -240,10 +293,7 @@ def load_default_cryptogram() -> None:
         st.warning("Default sample file is missing: data/illustrative_problem_2.txt")
         return
 
-    default_text = default_path.read_text(encoding="utf-8", errors="replace")
-    st.session_state.cryptogram_text = default_text.replace("\r\n", "\n")
-    st.session_state.uploaded_filename = default_path.name
-    st.session_state.active_cryptogram_source = "default"
+    load_cryptogram_from_path(default_path, source_name="default")
 
 
 def normalize_single_letter(value: str) -> str:
@@ -515,6 +565,7 @@ def export_session_payload() -> dict[str, object]:
         "schema_version": 1,
         "cryptogram_text": st.session_state.cryptogram_text,
         "uploaded_filename": st.session_state.uploaded_filename,
+        "data_folder_file_selection": st.session_state.data_folder_file_selection,
         "active_cryptogram_source": st.session_state.active_cryptogram_source,
         "cryptogram_input_mode": st.session_state.cryptogram_input_mode,
         "corpus_source_selection": st.session_state.corpus_source_selection,
@@ -532,6 +583,7 @@ def import_session_payload(payload: dict[str, object]) -> None:
 
     st.session_state.cryptogram_text = str(payload.get("cryptogram_text", ""))
     st.session_state.uploaded_filename = str(payload.get("uploaded_filename", ""))
+    st.session_state.data_folder_file_selection = str(payload.get("data_folder_file_selection", ""))
     st.session_state.active_cryptogram_source = str(payload.get("active_cryptogram_source", "upload"))
     st.session_state.cryptogram_input_mode = str(payload.get("cryptogram_input_mode", "Upload file"))
     st.session_state.corpus_source_selection = str(
@@ -631,13 +683,43 @@ def load_uploaded_text() -> None:
     st.markdown("**Cryptogram input**")
     input_mode = st.segmented_control(
         "Source",
-        options=["Use default sample", "Upload file"],
+        options=["Use default sample", "Select from data folder", "Upload file"],
         key="cryptogram_input_mode",
     )
 
     if input_mode == "Use default sample":
         if st.session_state.active_cryptogram_source != "default":
             load_default_cryptogram()
+        st.caption(f"Active cryptogram: {st.session_state.uploaded_filename}")
+        return
+
+    if input_mode == "Select from data folder":
+        selectable_files = get_selectable_data_cryptogram_files()
+
+        if not selectable_files:
+            st.caption("No selectable .txt files found in data/. Files ending in _solution.txt are excluded.")
+            return
+
+        selectable_file_names = [file_path.name for file_path in selectable_files]
+        if st.session_state.data_folder_file_selection not in selectable_file_names:
+            st.session_state.data_folder_file_selection = selectable_file_names[0]
+
+        selected_file_name = st.selectbox(
+            "Select cryptogram from data/",
+            options=selectable_file_names,
+            key="data_folder_file_selection",
+        )
+
+        selected_file_path = next(
+            file_path for file_path in selectable_files if file_path.name == selected_file_name
+        )
+
+        if (
+            selected_file_name != st.session_state.uploaded_filename
+            or st.session_state.active_cryptogram_source != "data-folder"
+        ):
+            load_cryptogram_from_path(selected_file_path, source_name="data-folder")
+
         st.caption(f"Active cryptogram: {st.session_state.uploaded_filename}")
         return
 
@@ -1579,6 +1661,7 @@ def apply_page_styles(theme_name: str) -> None:
 def main() -> None:
     st.set_page_config(page_title="Cryptogram Workspace", page_icon=":material/key:", layout="wide")
     initialize_state()
+    apply_pending_widget_state_updates()
     seed_defaults_on_first_load()
     apply_pending_session_import()
     initialize_mapping_history()

@@ -36,6 +36,7 @@ Inspired by the book *Solving Cryptograms: A Scientific Approach* by Ross Halloc
 ```text
 cryptogram/
 ├── app.py                           # App entrypoint and UI logic
+├── generate_encoding.py             # Utility to generate encoded cipher files from plaintext lines
 ├── requirements.txt                 # Python dependencies
 ├── README.md
 ├── data/
@@ -75,6 +76,32 @@ Then open: <http://localhost:8501>
 - Use status badges and warnings to resolve conflicts and self-substitutions.
 - Review analysis tabs to guide next guesses.
 - Export session JSON to save progress or import JSON to restore a session.
+
+## Generate Your Own Ciphers
+
+Use `generate_encoding.py` to create cryptogram files from your own plaintext list.
+
+1. Create an input text file with **one plaintext message per line**.
+2. Run the generator with:
+
+```powershell
+python generate_encoding.py <plain_text_file_path> <beginning_pattern> <output_directory_path>
+```
+
+Example:
+
+```powershell
+python generate_encoding.py data\composite.txt generic data\
+```
+
+For each line in the input file, the script:
+
+- lowercases the plaintext
+- builds a random letter substitution where a letter never maps to itself
+- writes encoded output as `{beginning_pattern}_{index}.txt`
+- writes the matching solution as `{beginning_pattern}_{index}_solution.txt`
+
+This is useful for building your own puzzle set to load into the app.
 
 ## Notes
 
