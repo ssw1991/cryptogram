@@ -1144,6 +1144,15 @@ def render_data_sheets() -> str | None:
         ascending=[False, True],
     )[identifier_column].tolist()
 
+    cryptogram_rank_map = {
+        token: rank
+        for rank, token in enumerate(cryptogram_ranked_tokens, start=1)
+    }
+    corpus_rank_map = {
+        token: rank
+        for rank, token in enumerate(corpus_ranked_tokens, start=1)
+    }
+
     default_sort_column = "Cryptogram initial frequency (%)"
     sort_column = default_sort_column if default_sort_column in frequency_table.columns else config["cryptogram_column"]
     frequency_table = frequency_table.sort_values(
@@ -1151,8 +1160,12 @@ def render_data_sheets() -> str | None:
         ascending=[False, True],
     ).reset_index(drop=True)
 
-    frequency_table["Same-rank corpus token"] = corpus_ranked_tokens[: len(frequency_table)]
-    frequency_table["Same-rank cryptogram token"] = cryptogram_ranked_tokens[: len(frequency_table)]
+    frequency_table["Same-rank corpus token"] = frequency_table[identifier_column].map(
+        lambda token: corpus_ranked_tokens[cryptogram_rank_map[token] - 1]
+    )
+    frequency_table["Same-rank cryptogram token"] = frequency_table[identifier_column].map(
+        lambda token: cryptogram_ranked_tokens[corpus_rank_map[token] - 1]
+    )
     frequency_table = frequency_table[
         [
             identifier_column,
