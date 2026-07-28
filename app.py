@@ -1134,6 +1134,18 @@ def render_data_sheets() -> str | None:
         )
         number_format = "%.4f%%"
 
+    sort_basis = st.segmented_control(
+        "Sort basis",
+        options=["Cryptogram frequency", "Corpus frequency"],
+        key="data_sheet_rank_basis",
+    )
+
+    debug_ranks = st.toggle(
+        "Debug ranks",
+        key="data_sheet_debug_ranks",
+        help="Show corpus and cryptogram rank numbers for each token.",
+    )
+
     identifier_column = "Cipher Token"
     cryptogram_ranked_tokens = frequency_table.sort_values(
         by=[config["cryptogram_column"], identifier_column],
@@ -1145,51 +1157,97 @@ def render_data_sheets() -> str | None:
     )[identifier_column].tolist()
 
     cryptogram_rank_map = {
-        token: rank
-        for rank, token in enumerate(cryptogram_ranked_tokens, start=1)
+        token: rank_index
+        for rank_index, token in enumerate(cryptogram_ranked_tokens)
     }
     corpus_rank_map = {
-        token: rank
-        for rank, token in enumerate(corpus_ranked_tokens, start=1)
+        token: rank_index
+        for rank_index, token in enumerate(corpus_ranked_tokens)
     }
 
-    default_sort_column = "Cryptogram initial frequency (%)"
-    sort_column = default_sort_column if default_sort_column in frequency_table.columns else config["cryptogram_column"]
-    frequency_table = frequency_table.sort_values(
-        by=[sort_column, identifier_column],
-        ascending=[False, True],
-    ).reset_index(drop=True)
+    token_value_map = {
+        row[identifier_column]: {
+            config["cryptogram_column"]: row[config["cryptogram_column"]],
+            config["corpus_column"]: row[config["corpus_column"]],
+        }
+        for row in frequency_table.to_dict("records")
+    }
 
-    frequency_table["Same-rank corpus token"] = frequency_table[identifier_column].map(
-        lambda token: corpus_ranked_tokens[cryptogram_rank_map[token] - 1]
+    token_rows: list[dict[str, object]] = []
+
+    def build_rank_window(
+        tokens: list[str],
+        rank_index: int,
+        window_size: int = 5,
+    ) -> str:
+        if not tokens:
+            return ""
+
+        start_index = max(0, rank_index - (window_size - 2))
+
+        end_index = start_index + window_size
+        if end_index > len(tokens):
+            end_index = len(tokens)
+            start_index = max(0, end_index - window_size)
+
+        return ", ".join(tokens[start_index:end_index])
+
+    basis_ranked_tokens = (
+        corpus_ranked_tokens if sort_basis == "Corpus frequency" else cryptogram_ranked_tokens
     )
-    frequency_table["Same-rank cryptogram token"] = frequency_table[identifier_column].map(
-        lambda token: cryptogram_ranked_tokens[corpus_rank_map[token] - 1]
-    )
-    frequency_table = frequency_table[
-        [
-            identifier_column,
-            "Same-rank corpus token",
-            "Same-rank cryptogram token",
-            config["cryptogram_column"],
-            config["corpus_column"],
-        ]
-    ]
+
+    for rank_index, token in enumerate(basis_ranked_tokens):
+        row_values = token_value_map[token]
+        corpus_rank_index = corpus_rank_map[token]
+        cryptogram_rank_index = cryptogram_rank_map[token]
+
+        row_data: dict[str, object] = {
+            "Token": token,
+            "Same-rank corpus token": build_rank_window(
+                corpus_ranked_tokens,
+                rank_index,
+            ),
+            "Same-rank cryptogram token": build_rank_window(
+                cryptogram_ranked_tokens,
+                rank_index,
+            ),
+            config["cryptogram_column"]: row_values[config["cryptogram_column"]],
+            config["corpus_column"]: row_values[config["corpus_column"]],
+        }
+
+        if debug_ranks:
+            row_data["Corpus rank"] = corpus_rank_index + 1
+            row_data["Cryptogram rank"] = cryptogram_rank_index + 1
+            row_data["Basis row rank"] = rank_index + 1
+
+        token_rows.append(row_data)
+
+    frequency_table = pd.DataFrame(token_rows)
 
     st.caption(
-        "Same-rank corpus token and same-rank cryptogram token are aligned by their respective frequency ranks "
-        "(ties broken alphabetically)."
+        "Token follows the selected sort basis. Same-rank fields show a 5-token rank window based on each "
+        "token's actual rank in that distribution, with top front-fill behavior."
     )
 
-    st.dataframe(
-        frequency_table,
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            config["cryptogram_column"]: st.column_config.NumberColumn(format=number_format),
-            config["corpus_column"]: st.column_config.NumberColumn(format=number_format),
-        },
-    )
+    if debug_ranks:
+        st.caption("Debug mode: ranks are 1-based.")
+
+    display_table = frequency_table.copy()
+
+    if sort_basis == "Cryptogram frequency":
+        display_table = display_table.drop(columns=["Same-rank cryptogram token"])
+    else:
+        display_table = display_table.drop(columns=["Same-rank corpus token"])
+
+    if number_format == "%.2f%%":
+        display_table[config["cryptogram_column"]] = display_table[config["cryptogram_column"]].map(lambda value: f"{value:.2f}%")
+        display_table[config["corpus_column"]] = display_table[config["corpus_column"]].map(lambda value: f"{value:.2f}%")
+    else:
+        display_table[config["cryptogram_column"]] = display_table[config["cryptogram_column"]].map(lambda value: f"{value:.4f}%")
+        display_table[config["corpus_column"]] = display_table[config["corpus_column"]].map(lambda value: f"{value:.4f}%")
+
+    with st.container(height=520):
+        st.table(display_table)
 
     return corpus_text
 
