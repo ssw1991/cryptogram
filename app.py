@@ -805,7 +805,7 @@ def build_frequency_table(
     for letter in ascii_uppercase:
         rows.append(
             {
-                "Letter": letter,
+                "Cipher Token": letter,
                 cryptogram_column_name: cryptogram_distribution[letter],
                 corpus_column_name: corpus_distribution[letter],
             }
@@ -883,7 +883,7 @@ def build_bigram_frequency_table(
             bigram = f"{first}{second}"
             rows.append(
                 {
-                    "Bigram": bigram,
+                    "Cipher Token": bigram,
                     cryptogram_column_name: cryptogram_distribution[bigram],
                     corpus_column_name: corpus_distribution[bigram],
                 }
@@ -1052,7 +1052,11 @@ def render_data_sheets() -> str | None:
         )
         number_format = "%.4f%%"
 
-    identifier_column = "Bigram" if config["unit"] == "bigram" else "Letter"
+    identifier_column = "Cipher Token"
+    cryptogram_ranked_tokens = frequency_table.sort_values(
+        by=[config["cryptogram_column"], identifier_column],
+        ascending=[False, True],
+    )[identifier_column].tolist()
     corpus_ranked_tokens = frequency_table.sort_values(
         by=[config["corpus_column"], identifier_column],
         ascending=[False, True],
@@ -1066,16 +1070,21 @@ def render_data_sheets() -> str | None:
     ).reset_index(drop=True)
 
     frequency_table["Same-rank corpus token"] = corpus_ranked_tokens[: len(frequency_table)]
+    frequency_table["Same-rank cryptogram token"] = cryptogram_ranked_tokens[: len(frequency_table)]
     frequency_table = frequency_table[
         [
             identifier_column,
             "Same-rank corpus token",
+            "Same-rank cryptogram token",
             config["cryptogram_column"],
             config["corpus_column"],
         ]
     ]
 
-    st.caption("Same-rank corpus token is aligned by corpus-frequency rank with alphabetical tie-break.")
+    st.caption(
+        "Same-rank corpus token and same-rank cryptogram token are aligned by their respective frequency ranks "
+        "(ties broken alphabetically)."
+    )
 
     st.dataframe(
         frequency_table,
